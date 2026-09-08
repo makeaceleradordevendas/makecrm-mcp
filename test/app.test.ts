@@ -28,7 +28,7 @@ class MemoryLimiter implements RateLimiter {
   }
   async ready() { return true; }
 }
-async function setup(overrides: { gateway?: SaasGateway; limiter?: RateLimiter; userLimit?: number; companyLimit?: number } = {}) {
+async function setup(overrides: { gateway?: SaasGateway; limiter?: RateLimiter; userLimit?: number; companyLimit?: number; personalToken?: boolean } = {}) {
   const a = principal();
   const b = principal();
   const identities = new Map<string, Principal>([['token-a', a], ['token-b', b]]);
@@ -42,6 +42,7 @@ async function setup(overrides: { gateway?: SaasGateway; limiter?: RateLimiter; 
     },
   };
   const config = testConfig();
+  if (overrides.personalToken) { config.AUTH_MODE = 'personal_token'; config.OAUTH_ISSUER = undefined; }
   if (overrides.userLimit) config.USER_REQUESTS_PER_MINUTE = overrides.userLimit;
   if (overrides.companyLimit) config.COMPANY_REQUESTS_PER_MINUTE = overrides.companyLimit;
   const audits: unknown[] = [];
@@ -60,6 +61,41 @@ async function setup(overrides: { gateway?: SaasGateway; limiter?: RateLimiter; 
 }
 const list = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
 const call = (args: unknown = {}) => ({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'search_contacts', arguments: args } });
+
+test('token manual exige autenticação, limita acesso e não anuncia OAuth', async t => {
+  const s = await setup({ personalToken: true }); t.after(s.close);
+  for (const path of ['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp']) {
+    assert.equal((await fetch(`${s.url}${path}`)).status, 404);
+  }
+  const missing = await fetch(`${s.url}/mcp`, { method: 'POST' });
+  assert.equal(missing.status, 401);
+  assert.equal(missing.headers.get('www-authenticate'), 'Bearer realm="MakeCRM MCP"');
+  assert.equal((await s.post(list, 'invalid')).status, 401);
+  const client = new Client({ name: 'manual-token-test', version: '1.0.0' });
+  t.after(() => client.close());
+  await client.connect(new StreamableHTTPClientTransport(new URL(`${s.url}/mcp`), {
+    requestInit: { headers: { authorization: 'Bearer token-a' } },
+  }));
+  const tools = await client.listTools();
+  assert.equal(tools.tools.length, 3);
+  assert(tools.tools.every(tool => tool.annotations?.readOnlyHint && !tool._meta?.securitySchemes));
+  assert.equal((await client.callTool({ name: 'search_contacts', arguments: {} })).isError, undefined);
+  s.identities.set('token-a', { ...s.a, scopes: ['opportunities:read'] });
+  assert.equal((await client.callTool({ name: 'search_contacts', arguments: {} })).isError, true);
+  s.identities.delete('token-a');
+  assert.equal((await s.post(list)).status, 401);
+});
+
+test('modo manual permite produção sem issuer; modo OAuth continua exigindo issuer', () => {
+  const env = { NODE_ENV: 'production', PUBLIC_URL: 'https://mcp.test',
+    SAAS_API_KEY: 's'.repeat(32), REDIS_URL: 'rediss://redis.test:6379', ALLOWED_HOSTS: 'mcp.test',
+    SUPABASE_URL: 'https://project.supabase.co', SUPABASE_PUBLISHABLE_KEY: 'sb_publishable_test_only',
+    SESSION_ENCRYPTION_KEY: 'a'.repeat(64), MCP_CURSOR_SECRET: 'c'.repeat(32) };
+  assert.equal(readConfig({ ...env, AUTH_MODE: 'personal_token' }).OAUTH_ISSUER, undefined);
+  assert.throws(() => readConfig(env), /OAUTH_ISSUER/);
+  assert.throws(() => readConfig({ ...env, AUTH_MODE: 'none' }), /AUTH_MODE/);
+  assert.throws(() => readConfig({ ...env, AUTH_MODE: 'personal_token', REDIS_URL: undefined }), /REDIS_URL/);
+});
 
 test('página inicial informa o endpoint sem declarar prontidão da integração', async t => {
   const s = await setup(); t.after(s.close);

@@ -9,6 +9,7 @@ Abra o projeto na Vercel, **Settings → Environment Variables**. Cadastre as va
 | Nome | Valor / origem |
 |---|---|
 | `NODE_ENV` | `production` |
+| `AUTH_MODE` | `personal_token` para testes autenticados com UUID manual |
 | `PUBLIC_URL` | `https://makecrm-mcp.vercel.app` (sem `/mcp`) |
 | `ALLOWED_HOSTS` | `makecrm-mcp.vercel.app` (sem `https://`) |
 | `SUPABASE_URL` | URL do seu projeto Supabase |
@@ -17,7 +18,7 @@ Abra o projeto na Vercel, **Settings → Environment Variables**. Cadastre as va
 | `SESSION_ENCRYPTION_KEY` | Segredo aleatório de 32 bytes representado por 64 caracteres hexadecimais |
 | `MCP_CURSOR_SECRET` | Outro segredo aleatório, de pelo menos 32 caracteres |
 | `SAAS_API_KEY` | Outro segredo aleatório, de pelo menos 32 caracteres, exclusivo da API interna; não é uma chave Supabase |
-| `OAUTH_ISSUER` | URL HTTPS do servidor de autorização OAuth compatível; veja a limitação abaixo |
+| `OAUTH_ISSUER` | Não cadastrar no modo `personal_token`. Obrigatório somente em `AUTH_MODE=oauth`, com issuer real compatível |
 | `ALLOWED_ORIGINS` | Origem HTTPS exata do frontend SaaS. Várias origens separadas por vírgula; pode ficar vazio para clientes sem Origin |
 | `TRUST_PROXY_HOPS` | `1` na Vercel, conforme caminho de proxy documentado no README |
 
@@ -27,6 +28,10 @@ O modo Supabase não precisa de `SAAS_API_URL`. Os limites e timeouts têm valor
 
 **OAuth ainda não está implementado por completo neste projeto.** Supabase Auth autentica o usuário do SaaS, mas configurar sua URL como issuer não implementa automaticamente consentimento, códigos de autorização, escopos MCP e renovação. Não use um issuer inventado para considerar o servidor pronto. Essa etapa precisa ser concluída conforme `integration.md` antes da conexão real com ChatGPT/Claude.
 
+`AUTH_MODE=personal_token` permite testar o transporte MCP e as consultas no deploy com Bearer manual, sem descoberta ou redirecionamento OAuth. Autenticação, permissões, expiração, revogação, Redis e RLS continuam obrigatórios. Omitir `AUTH_MODE` mantém o comportamento anterior (`oauth`), que exige `OAUTH_ISSUER`.
+
+Se a integração Upstash criou somente variáveis `KV_*` ou `UPSTASH_REDIS_REST_*`, adicione também **`REDIS_URL`** com a URL TLS `rediss://` fornecida pelo banco. O cliente deste projeto não usa essas variáveis REST. Na Vercel não é necessário cadastrar `PORT`, `HOST` ou `SAAS_API_URL` para o modo integrado Supabase, nem prefixar variáveis com `VITE_`.
+
 ## Após configurar
 
 1. Faça um novo deploy: alterar variáveis não atualiza uma função já implantada.
@@ -34,6 +39,23 @@ O modo Supabase não precisa de `SAAS_API_URL`. Os limites e timeouts têm valor
 3. Acesse `/readyz`. `200` verifica a conexão Redis; `503` indica indisponibilidade. Esse teste não verifica o banco ou OAuth.
 4. Aplique e homologue a migração de `supabase/migrations/` no Supabase antes de testar consultas com a sessão de um usuário real e suas RLS.
 5. Para clientes de IA, o endpoint será `https://makecrm-mcp.vercel.app/mcp`, após concluir OAuth.
+
+## Teste autenticado com token manual
+
+Use `AUTH_MODE=personal_token` e a versão do código que implementa esse modo. As funções `mcp_identity` e `mcp_read_page` da migração precisam existir no Supabase; elas mantêm as políticas e permissões atuais e consultam os dados como o usuário conectado. A emissão exige um usuário e sua empresa ativos.
+
+1. Faça login no SaaS pelo Supabase Auth. Use o `access_token` dessa sessão em um cliente HTTP local confiável para enviar `POST https://makecrm-mcp.vercel.app/api/mcp-tokens`. Não use a chave publishable, a senha, o refresh token ou `SAAS_API_KEY` como Bearer desse pedido. Não salve tokens em coleções públicas ou logs.
+2. Envie os cabeçalhos `Authorization: Bearer <access_token da sessão Supabase>` e `Content-Type: application/json`, com o corpo:
+
+```json
+{"label":"Teste produção","scopes":["contacts:read","opportunities:read","conversations:read"]}
+```
+
+3. A resposta `201` traz `token` (UUID secreto), `credential_id` e `expires_at`. O servidor emite o UUID; inventar um UUID ou criar uma variável de ambiente com ele não autentica ninguém. O token expira junto com a sessão Supabase, limitado a uma hora.
+4. Configure um cliente MCP que aceite cabeçalho Bearer manual com transporte **Streamable HTTP**, URL `https://makecrm-mcp.vercel.app/mcp` e `Authorization: Bearer <token UUID retornado>`. O cliente realiza `initialize` e pode listar as três ferramentas e executar `search_contacts` com `{"limit":1}`. Faça a mesma consulta com usuários de empresas distintas para validar as RLS reais.
+5. Ao terminar, envie `DELETE /api/mcp-tokens/<credential_id>` com a sessão Supabase do mesmo usuário para revogar o token. As próximas chamadas com esse UUID devem retornar `401`.
+
+O teste não altera contatos, oportunidades ou conversas. A gestão de credenciais grava apenas no Redis. `/readyz` sozinho não testa RLS nem consultas ao Supabase. Abrir `/mcp` no navegador também não executa uma consulta MCP.
 
 ## Diagnóstico
 

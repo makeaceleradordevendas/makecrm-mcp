@@ -8,6 +8,8 @@ Implementados: transporte Streamable HTTP sem sessão MCP local; nova API de lei
 
 **Ainda não está pronto para produção ou para conectar uma conta real no ChatGPT/Claude por OAuth.** Faltam o fluxo completo de login/consentimento com renovação de sessão dedicada, a integração visual no SaaS, a configuração dos serviços e homologação na Vercel/Supabase. O UUID emitido nesta etapa expira junto com a sessão Supabase associada, limitado a uma hora; não há refresh automático.
 
+Para testar consultas autenticadas no deploy, use **`AUTH_MODE=personal_token`**, sem `OAUTH_ISSUER`, com um cliente MCP que envie Bearer manual. Esse modo mantém Redis, RLS, permissões e revogação; não implementa a conexão OAuth nos apps de IA. Consulte o [roteiro de configuração e teste](docs/vercel-setup.md).
+
 Não foram reaproveitadas ferramentas, APIs nem configurações secretas do projeto ao lado. Nenhum deploy ou alteração no Supabase real foi realizado. A migração foi aplicada e testada apenas em PostgreSQL temporário com dados fictícios.
 
 ## Decisões confirmadas
@@ -56,7 +58,7 @@ Aplique `supabase/migrations/202609080001_mcp_read_api.sql` primeiro em homologa
 | `POST /mcp` | Protocolo MCP; Bearer obrigatório |
 | `OPTIONS /mcp` | Preflight CORS com allowlist |
 | `GET /mcp`, `DELETE /mcp` | 405 no modo sem sessão |
-| `/.well-known/oauth-protected-resource/mcp` | Descoberta do recurso e do issuer OAuth |
+| `/.well-known/oauth-protected-resource/mcp` | Descoberta no modo `oauth`; 404 no modo `personal_token` |
 | `/.well-known/oauth-protected-resource` | Alias da mesma descoberta |
 | `/healthz` | Processo disponível |
 | `/readyz` | Conectividade com Redis; não valida a integração com o SaaS |

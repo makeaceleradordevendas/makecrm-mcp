@@ -15,6 +15,8 @@ Com as variáveis Supabase configuradas, MCP e API executam no mesmo processo Ve
 
 ## Emissão de UUID no SaaS
 
+Para testes no deploy sem servidor OAuth, configure `AUTH_MODE=personal_token` e não cadastre `OAUTH_ISSUER`. Nesse modo, o servidor exige Bearer manual e não publica descoberta OAuth nem metadados OAuth nas ferramentas. Os controles de acesso são os mesmos. Veja o [roteiro na Vercel](vercel-setup.md#teste-autenticado-com-token-manual). O modo padrão, quando omitido, continua sendo `oauth` e exige um issuer real.
+
 `POST /api/mcp-tokens` exige uma sessão Supabase de usuário, enviada no cabeçalho Authorization. Não aceita uma credencial MCP para gerenciar credenciais. O backend valida a sessão com Supabase Auth, resolve sua identidade pela função `mcp_identity` e não recebe `user_id` ou `company_id` no corpo.
 
 ```json
@@ -76,7 +78,7 @@ Resposta: `{ "items": [...], "next_cursor": "... ou null" }`. Envie `cursor` na 
 
 ## OAuth: etapa ainda pendente
 
-O servidor publica descoberta do recurso e `WWW-Authenticate`, mas ainda não implementa autorização, cadastro de clientes, consentimento, troca de códigos ou refresh. **Emitir um UUID não conclui a integração OAuth com ChatGPT/Claude.**
+No modo `oauth`, o servidor publica descoberta do recurso e `WWW-Authenticate`, mas ainda não implementa autorização, cadastro de clientes, consentimento, troca de códigos ou refresh. **Emitir um UUID não conclui a integração OAuth com ChatGPT/Claude.**
 
 O ChatGPT espera OAuth com PKCE S256 e credenciais destinadas ao MCP. A implementação prevista emitirá uma credencial MCP distinta da credencial de acesso à API Supabase. [Autenticação OpenAI](https://developers.openai.com/plugins/build/auth).
 

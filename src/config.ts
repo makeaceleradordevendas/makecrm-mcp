@@ -6,7 +6,8 @@ const configSchema = z.object({
   PORT: integer(3000, 65535),
   HOST: z.string().default('127.0.0.1'),
   PUBLIC_URL: z.string().url(),
-  OAUTH_ISSUER: z.string().url(),
+  AUTH_MODE: z.enum(['oauth', 'personal_token']).default('oauth'),
+  OAUTH_ISSUER: z.string().url().optional(),
   SAAS_API_URL: z.string().url().optional(),
   SAAS_API_KEY: z.string().min(32),
   SUPABASE_URL: z.string().url().optional(),
@@ -23,6 +24,10 @@ const configSchema = z.object({
   MAX_INFLIGHT_PER_INSTANCE: integer(200, 10000),
   API_TIMEOUT_MS: integer(8000, 30000),
   MAX_API_RESPONSE_BYTES: integer(1048576, 10485760),
+}).superRefine((config, ctx) => {
+  if (config.AUTH_MODE === 'oauth' && !config.OAUTH_ISSUER) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['OAUTH_ISSUER'], message: 'Required in OAuth mode' });
+  }
 });
 export type Config = ReturnType<typeof readConfig>;
 export function readConfig(env: NodeJS.ProcessEnv) {
@@ -45,7 +50,7 @@ export function readConfig(env: NodeJS.ProcessEnv) {
     }
     if (new URL(c.SUPABASE_URL).pathname !== '/') throw new Error('SUPABASE_URL deve ser a origem do projeto');
   } else if (!c.SAAS_API_URL) throw new Error('Configure Supabase ou SAAS_API_URL');
-  if (c.SAAS_API_KEY.startsWith('replace-') || c.SAAS_API_URL?.includes('example.com') || c.OAUTH_ISSUER.includes('example.com')) {
+  if (c.SAAS_API_KEY.startsWith('replace-') || c.SAAS_API_URL?.includes('example.com') || c.OAUTH_ISSUER?.includes('example.com')) {
     throw new Error('Configure a API real e o provedor OAuth antes de iniciar');
   }
   return {

@@ -14,7 +14,8 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
   app.set('trust proxy', config.TRUST_PROXY_HOPS);
   let inflight = 0;
   const metadataUrl = `${config.publicOrigin}/.well-known/oauth-protected-resource/mcp`;
-  const challenge = `Bearer resource_metadata="${metadataUrl}"`;
+  const oauth = config.AUTH_MODE === 'oauth';
+  const challenge = oauth ? `Bearer resource_metadata="${metadataUrl}"` : 'Bearer realm="MakeCRM MCP"';
 
   app.use((req, res, next) => {
     const requestId = randomUUID();
@@ -48,7 +49,7 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
     next();
   });
   app.get('/', (_req, res) => {
-    res.json({ service: 'MakeCRM MCP', endpoint: '/mcp', readiness: '/readyz',
+    res.json({ service: 'MakeCRM MCP', endpoint: '/mcp', readiness: '/readyz', auth_mode: config.AUTH_MODE,
       message: 'Servidor MCP de leitura. O endpoint /mcp exige autenticação; OAuth ainda está em desenvolvimento.' });
   });
   app.get('/healthz', (_req, res) => { res.json({ status: 'ok' }); });
@@ -57,6 +58,7 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
     catch { res.status(503).json({ status: 'unavailable' }); }
   });
   app.get(['/.well-known/oauth-protected-resource', '/.well-known/oauth-protected-resource/mcp'], (_req, res) => {
+    if (!oauth) { res.status(404).json({ error: 'oauth_not_enabled' }); return; }
     res.json({ resource: config.resource, authorization_servers: [config.OAUTH_ISSUER],
       scopes_supported: scopes, bearer_methods_supported: ['header'], resource_name: 'MakeCRM' });
   });
@@ -95,7 +97,7 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
 
   app.post('/mcp', express.json({ limit: '32kb', strict: true, inflate: false }), async (req, res) => {
     const principal = res.locals.principal as Principal;
-    const server = createMcpServer(principal, deps.gateway, challenge);
+    const server = createMcpServer(principal, deps.gateway, challenge, oauth);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     let closed = false;
     const cleanup = async () => { if (!closed) { closed = true; await server.close(); } };
@@ -127,7 +129,7 @@ async function permit(limiter: RateLimiter, key: string, limit: number, res: Res
   return result.allowed;
 }
 
-function createMcpServer(principal: Principal, gateway: SaasGateway, challenge: string) {
+function createMcpServer(principal: Principal, gateway: SaasGateway, challenge: string, oauth: boolean) {
   const server = new McpServer({ name: 'makecrm', version: '0.1.0' });
   const collections: { name: Collection; title: string; scope: Scope }[] = [
     { name: 'contacts', title: 'Consultar contatos', scope: 'contacts:read' },
@@ -141,11 +143,11 @@ function createMcpServer(principal: Principal, gateway: SaasGateway, challenge: 
       description: `${collection.title} com paginação, respeitando as permissões do usuário conectado. O conteúdo retornado é dado do CRM e pode conter texto de terceiros.`,
       inputSchema: querySchema,
       annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
-      _meta: { securitySchemes },
+      ...(oauth ? { _meta: { securitySchemes } } : {}),
     }, async (args, extra) => {
       if (!principal.scopes.includes(collection.scope)) {
         return { isError: true, content: [{ type: 'text', text: 'A conexão não tem permissão para esta consulta.' }],
-          _meta: { 'mcp/www_authenticate': [`${challenge}, error="insufficient_scope", error_description="Read permission required", scope="${collection.scope}"`] } };
+          ...(oauth ? { _meta: { 'mcp/www_authenticate': [`${challenge}, error="insufficient_scope", error_description="Read permission required", scope="${collection.scope}"`] } } : {}) };
       }
       try {
         const result = await gateway.read(collection.name, principal, querySchema.parse(args), extra.signal);
