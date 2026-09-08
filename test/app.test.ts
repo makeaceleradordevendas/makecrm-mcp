@@ -61,6 +61,17 @@ async function setup(overrides: { gateway?: SaasGateway; limiter?: RateLimiter; 
 const list = { jsonrpc: '2.0', id: 1, method: 'tools/list' };
 const call = (args: unknown = {}) => ({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'search_contacts', arguments: args } });
 
+test('página inicial informa o endpoint sem declarar prontidão da integração', async t => {
+  const s = await setup(); t.after(s.close);
+  const response = await fetch(s.url);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.equal(body.endpoint, '/mcp');
+  assert.equal(body.readiness, '/readyz');
+  assert.equal(body.status, undefined);
+  assert.equal((await fetch(`${s.url}/mcp`, { method: 'POST' })).status, 401);
+});
+
 test('cliente oficial: initialize, list e consulta sem estado de sessão', async t => {
   const s = await setup(); t.after(s.close);
   const client = new Client({ name: 'integration-test', version: '1.0.0' });

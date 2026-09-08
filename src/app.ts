@@ -47,6 +47,10 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
     }
     next();
   });
+  app.get('/', (_req, res) => {
+    res.json({ service: 'MakeCRM MCP', endpoint: '/mcp', readiness: '/readyz',
+      message: 'Servidor MCP de leitura. O endpoint /mcp exige autenticação; OAuth ainda está em desenvolvimento.' });
+  });
   app.get('/healthz', (_req, res) => { res.json({ status: 'ok' }); });
   app.get('/readyz', async (_req, res) => {
     try { const ok = await deps.limiter.ready(); res.status(ok ? 200 : 503).json({ status: ok ? 'ready' : 'unavailable' }); }

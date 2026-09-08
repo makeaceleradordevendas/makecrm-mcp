@@ -52,6 +52,7 @@ Aplique `supabase/migrations/202609080001_mcp_read_api.sql` primeiro em homologa
 
 | Rota | Comportamento |
 |---|---|
+| `GET /` | Identificação do serviço e indicação do endpoint MCP; não atesta prontidão |
 | `POST /mcp` | Protocolo MCP; Bearer obrigatório |
 | `OPTIONS /mcp` | Preflight CORS com allowlist |
 | `GET /mcp`, `DELETE /mcp` | 405 no modo sem sessão |
@@ -71,6 +72,8 @@ Ferramentas: `search_contacts`, `search_opportunities`, `search_conversations`. 
 Use a raiz (`.`) como Root Directory do repositório `makeaceleradordevendas/makecrm-mcp`. A entrada é `src/index.ts`, com exportação de Express e Fluid compute habilitado em `vercel.json`. A Vercel suporta esse modelo de aplicação como uma função com concorrência por instância. [Documentação da Vercel](https://vercel.com/kb/guide/ship-a-express-app-on-vercel).
 
 Configure as variáveis do exemplo no ambiente apropriado. Use HTTPS público estável, um Redis gerenciado com TLS (`rediss://`) e credencial de serviço exclusiva para a nova API. Posicione Vercel, Redis e Supabase em regiões próximas; a região depende de onde o Supabase atual está hospedado.
+
+O arquivo `.env.example` **não configura o deploy automaticamente**. Veja o [passo a passo e diagnóstico de inicialização](docs/vercel-setup.md). Na entrada Vercel, uma falha de inicialização retorna HTTP 503 em todas as rotas e registra `startup_failed`; falhas de validação registram somente os nomes dos campos inválidos, sem seus valores. Não há acesso ao MCP enquanto a inicialização falhar.
 
 `ALLOWED_HOSTS` deve conter os domínios efetivos, incluindo previews que forem usados. `ALLOWED_ORIGINS` é uma lista exata das origens de navegador autorizadas; clientes servidor-a-servidor podem não enviar Origin. CORS não autentica ninguém.
 
