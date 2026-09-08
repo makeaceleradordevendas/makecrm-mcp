@@ -1,8 +1,25 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
+import { readdirSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 import { createStartupApp } from '../src/bootstrap.js';
 import { readConfig } from '../src/config.js';
+
+test('Vercel detecta uma única entrada Express com default export executável', () => {
+  const root = new URL('../', import.meta.url);
+  const candidates = ['', 'src/'].flatMap(dir => readdirSync(new URL(dir, root))
+    .filter(file => /^(app|index|server)\.(js|cjs|mjs|ts|cts|mts)$/.test(file))
+    .map(file => `${dir}${file}`));
+  assert.deepEqual(candidates, ['src/index.ts'], 'Factories não devem disputar a detecção de entrada da Vercel');
+  // Processo isolado sem credenciais: importar a entrada precisa exportar Express,
+  // inclusive quando a configuração ainda estiver incompleta.
+  const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e',
+    'const {default: app} = await import("./src/index.ts"); if (typeof app !== "function" || typeof app.listen !== "function") process.exit(2);'],
+  { cwd: fileURLToPath(root), env: { NODE_ENV: 'production', PATH: process.env.PATH }, encoding: 'utf8', timeout: 10000 });
+  assert.equal(child.status, 0, child.stderr);
+});
 
 test('ambiente incompleto responde 503 em todas as rotas sem expor valores', async t => {
   const events: unknown[] = [];

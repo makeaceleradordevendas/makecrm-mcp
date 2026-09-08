@@ -1,5 +1,5 @@
 import { createClient } from 'redis';
-import { createApp } from './app.js';
+import { createApp } from './create-app.js';
 import { readConfig } from './config.js';
 import { HttpSaasGateway } from './gateway.js';
 import { RedisRateLimiter } from './rate-limit.js';
