@@ -61,6 +61,7 @@ O teste não altera contatos, oportunidades ou conversas. A gestão de credencia
 
 ## Diagnóstico
 
+- `No entrypoint found which imports express`: a entrada deve importar Express diretamente. `src/index.ts` importa e instancia Express, monta a aplicação autenticada e exporta a instância como default. Um import indireto por `runtime.ts` não atende ao detector da Vercel.
 - `Invalid export found in module .../src/app.js`: use o commit que renomeia a factory para `create-app.ts`. Confirme Root Directory `.` e framework Express; faça um deploy da versão nova. Reimplantar o mesmo commit antigo mantém a ambiguidade.
 
 - `503` com `startup_failed`: abra **Logs** na Vercel e procure o evento de mesmo nome. `invalid_fields` lista nomes de variáveis ausentes ou inválidas. Confira também os requisitos da tabela: nenhum valor `replace-…` ou `example.com` deve permanecer.

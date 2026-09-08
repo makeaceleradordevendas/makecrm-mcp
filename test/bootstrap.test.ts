@@ -1,22 +1,36 @@
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { test } from 'node:test';
-import { readdirSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import ts from 'typescript';
 import { createStartupApp } from '../src/bootstrap.js';
 import { readConfig } from '../src/config.js';
 
 test('Vercel detecta uma única entrada Express com default export executável', () => {
   const root = new URL('../', import.meta.url);
   const candidates = ['', 'src/'].flatMap(dir => readdirSync(new URL(dir, root))
-    .filter(file => /^(app|index|server)\.(js|cjs|mjs|ts|cts|mts)$/.test(file))
+    .filter(file => /^(app|index|server|main)\.(js|cjs|mjs|ts|cts|mts)$/.test(file))
     .map(file => `${dir}${file}`));
-  assert.deepEqual(candidates, ['src/index.ts'], 'Factories não devem disputar a detecção de entrada da Vercel');
+  const expressEntrypoints = candidates.filter(file => {
+    const source = ts.createSourceFile(file, readFileSync(new URL(file, root), 'utf8'), ts.ScriptTarget.Latest);
+    return source.statements.some(statement => ts.isImportDeclaration(statement)
+      && ts.isStringLiteral(statement.moduleSpecifier) && statement.moduleSpecifier.text === 'express'
+      && !statement.importClause?.isTypeOnly);
+  });
+  assert.deepEqual(expressEntrypoints, ['src/index.ts'], 'Entrada precisa importar Express diretamente, sem factories concorrentes');
   // Processo isolado sem credenciais: importar a entrada precisa exportar Express,
   // inclusive quando a configuração ainda estiver incompleta.
   const child = spawnSync(process.execPath, ['--import', 'tsx', '--input-type=module', '-e',
-    'const {default: app} = await import("./src/index.ts"); if (typeof app !== "function" || typeof app.listen !== "function") process.exit(2);'],
+    `const {default: app} = await import("./src/index.ts");
+     if (typeof app !== "function" || typeof app.listen !== "function") process.exit(2);
+     const server = app.listen(0, "127.0.0.1");
+     await new Promise(resolve => server.once("listening", resolve));
+     try {
+       const response = await fetch("http://127.0.0.1:" + server.address().port + "/");
+       if (response.status !== 503 || (await response.json()).error !== "startup_failed") process.exitCode = 3;
+     } finally { server.closeAllConnections(); await new Promise(resolve => server.close(resolve)); }`],
   { cwd: fileURLToPath(root), env: { NODE_ENV: 'production', PATH: process.env.PATH }, encoding: 'utf8', timeout: 10000 });
   assert.equal(child.status, 0, child.stderr);
 });
