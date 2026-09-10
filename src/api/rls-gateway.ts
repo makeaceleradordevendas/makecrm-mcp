@@ -4,6 +4,7 @@ import { issuePersonalToken } from '../tokens.js';
 import { CursorCodec } from './cursor.js';
 import { type SessionStore, publicCredential } from './sessions.js';
 import { SupabaseUserApi } from './supabase.js';
+import { readTool, type ReadToolName } from '../tools/read-catalog.js';
 
 export class RlsSaasGateway implements SaasGateway {
   constructor(readonly sessions: SessionStore, readonly api: SupabaseUserApi, private readonly cursors: CursorCodec, private readonly resource: string) {}
@@ -44,6 +45,18 @@ export class RlsSaasGateway implements SaasGateway {
     return this.readContext(collection, principal, query, signal);
   }
 
+  async executeRead(name: ReadToolName, principal: Principal, input: unknown, signal?: AbortSignal) {
+    const tool = readTool(name);
+    const args = tool.schema.parse(input);
+    const session = await this.sessions.byId(principal.credential_id);
+    const p = session?.principal;
+    if (!session || !p || p.expires_at <= Date.now() / 1000 || principal.expires_at <= Date.now() / 1000 ||
+      p.resource !== this.resource || principal.resource !== p.resource || p.user_id !== principal.user_id || p.company_id !== principal.company_id ||
+      !p.scopes.includes(tool.scope) || !principal.scopes.includes(tool.scope)) throw new AccessDenied();
+    const identity = await this.api.identity(session.access_token, signal);
+    if (identity.user_id !== p.user_id || identity.company_id !== p.company_id) throw new AccessDenied();
+    return this.api.executeRead(session.access_token, identity, name, args, signal);
+  }
   async readContext(collection: Collection, context: Pick<Principal, 'credential_id' | 'user_id' | 'company_id'>, query: ReadQuery, signal?: AbortSignal) {
     const session = await this.sessions.byId(context.credential_id);
     const p = session?.principal;

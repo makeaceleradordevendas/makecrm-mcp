@@ -8,7 +8,7 @@ import { publicCredential, TokenLimitExceeded } from './sessions.js';
 
 const contextSchema = z.object({ credential_id: z.string().uuid(), user_id: z.string().uuid(), company_id: z.string().uuid() }).strict();
 const readSchema = querySchema.extend({ context: contextSchema });
-const issueSchema = z.object({ label: z.string().trim().min(1).max(80).default('Integração MCP'), scopes: z.array(scopeSchema).min(1).max(3).default([...scopes]) }).strict();
+const issueSchema = z.object({ label: z.string().trim().min(1).max(80).default('Integração MCP'), scopes: z.array(scopeSchema).min(1).max(scopes.length).default([...scopes]) }).strict();
 
 export function createApiRouter(gateway: RlsSaasGateway, limiter: RateLimiter, serviceKey: string) {
   const router = express.Router();

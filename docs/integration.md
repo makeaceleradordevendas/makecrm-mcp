@@ -1,3 +1,5 @@
+> Para conexões OAuth em produção, use [oauth-production.md](oauth-production.md). Os contratos de tokens manuais abaixo continuam disponíveis somente no modo `personal_token`.
+
 # Integração da API com Supabase e RLS
 
 ## Implementação atual
@@ -38,7 +40,7 @@ Resposta HTTP 201:
 
 O UUID completo não é persistido. O Redis guarda seu hash e a associação de sessão criptografada com AES-256-GCM. A criptografia usa uma chave exclusiva do backend, IV aleatório e autenticação vinculada à chave de armazenamento, impedindo trocar registros criptografados entre chaves. Todos os registros têm TTL.
 
-**Limitação atual: o UUID expira junto com o access token Supabase usado na emissão, limitado a uma hora. Não há renovação automática.** O backend não recebe nem copia o refresh token da sessão do navegador. Esse caminho serve para integrar emissão e testes de Bearer manual; a conexão duradoura por OAuth ainda será implementada com uma sessão Supabase própria do conector.
+**Limitação atual: o UUID expira junto com o access token Supabase usado na emissão, limitado a uma hora. Não há renovação automática.** O backend não recebe nem copia o refresh token da sessão do navegador. Esse caminho serve para integrar emissão e testes de Bearer manual; a conexão duradoura no modo OAuth usa uma sessão Supabase própria do conector; veja o roteiro de produção.
 
 `GET /api/mcp-tokens` lista somente metadados das credenciais do usuário. `DELETE /api/mcp-tokens/:credential_id` revoga a credencial, retornando 204 também para IDs desconhecidos ou de outro usuário. Não expõe a existência de credenciais alheias. O limite é de dez credenciais ativas por usuário, imposto atomicamente no Redis, e 30 chamadas de gestão por minuto/usuário. Antes de validar a sessão no Supabase, há também um limite de 120 chamadas de gestão por minuto/IP.
 
@@ -76,13 +78,9 @@ Uma credencial válida retorna `active`, `credential_id`, `user_id`, `company_id
 
 Resposta: `{ "items": [...], "next_cursor": "... ou null" }`. Envie `cursor` na próxima consulta, preservando a busca. O cursor tem assinatura HMAC, expira em até 15 minutos e é vinculado à credencial, usuário, empresa, recurso, coleção e texto da busca. Preserva a precisão de microssegundos dos timestamps; IDs desempatam a ordenação. O cursor é opaco para o cliente, mas não é criptografado.
 
-## OAuth: etapa ainda pendente
+## OAuth implementado
 
-No modo `oauth`, o servidor publica descoberta do recurso e `WWW-Authenticate`, mas ainda não implementa autorização, cadastro de clientes, consentimento, troca de códigos ou refresh. **Emitir um UUID não conclui a integração OAuth com ChatGPT/Claude.**
-
-O ChatGPT espera OAuth com PKCE S256 e credenciais destinadas ao MCP. A implementação prevista emitirá uma credencial MCP distinta da credencial de acesso à API Supabase. [Autenticação OpenAI](https://developers.openai.com/plugins/build/auth).
-
-Supabase OAuth nativo não oferece os três custom scopes anunciados pelo núcleo atual, conforme a documentação consultada. Não basta apontar `OAUTH_ISSUER` para o projeto Supabase sem adaptar o fluxo. O próximo passo será uma camada OAuth para o conector que aproveite Supabase Auth e mantenha uma sessão renovável própria, separada da sessão do SaaS no navegador. [Fluxos OAuth Supabase](https://supabase.com/docs/guides/auth/oauth-server/oauth-flows).
+O gateway OAuth publica os endpoints de autorização e troca de tokens no próprio MCP. Ele utiliza uma aplicação confidencial Supabase e mantém sessões dedicadas criptografadas no Redis. Inclui DCR com callbacks exatos, PKCE S256, consentimento por cliente, rotação e detecção de replay de refresh tokens e API de gestão por usuário. Consulte [ativação em produção](oauth-production.md).
 
 ## Preparar homologação
 
@@ -90,6 +88,6 @@ Supabase OAuth nativo não oferece os três custom scopes anunciados pelo núcle
 2. Configurar URL e publishable/anon key, Redis com TLS e os segredos do backend em `.env` ou na Vercel. Nenhuma chave real foi lida ou instalada nesta tarefa.
 3. Gerar `SESSION_ENCRYPTION_KEY` com 32 bytes aleatórios em hexadecimal e um segredo separado para `MCP_CURSOR_SECRET`. Mudanças na chave de sessão exigem reemitir credenciais; perda do Redis também exige reconectar. Não usar cache com política que descarte sessões inesperadamente.
 4. Testar com contas reais de homologação de duas empresas e usuários com visibilidades diferentes na mesma empresa.
-5. Implementar e homologar OAuth e o consentimento no SaaS antes de publicar a conexão nos apps de IA.
+5. Integrar os componentes de consentimento no SaaS e homologar OAuth antes de publicar a conexão nos apps de IA.
 
 O teste SQL usa dados fictícios e políticas representativas. Ele demonstra que as funções preservam RLS; não confirma quais políticas estão ativas no Supabase real. O usuário confirmou que as políticas amplas identificadas no documento não estão mais ativas.

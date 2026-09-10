@@ -5,8 +5,10 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import type { Config } from './config.js';
 import { AccessDenied, querySchema, scopes, type Collection, type Principal, type RateLimiter, type SaasGateway, type Scope } from './contracts.js';
 import { InvalidCursor } from './api/cursor.js';
+import { MAKECRM_FAVICON_URL, MAKECRM_LOGO_URL } from './branding.js';
+import { registerReadTools } from './tools/register-read-tools.js';
 
-type Dependencies = { gateway: SaasGateway; limiter: RateLimiter; apiRouter?: RequestHandler };
+type Dependencies = { gateway: SaasGateway; limiter: RateLimiter; apiRouter?: RequestHandler; oauthRouter?: RequestHandler };
 type Audit = { event: string; request_id: string; status: number; duration_ms: number; method: string; route: string };
 export function createApp(config: Config, deps: Dependencies, audit: (event: Audit) => void = event => console.info(JSON.stringify(event))) {
   const app = express();
@@ -25,7 +27,7 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
       'Cache-Control': 'no-store',
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
-      'Content-Security-Policy': "default-src 'none'; frame-ancestors 'none'",
+      'Content-Security-Policy': `default-src 'none'; img-src 'self' ${MAKECRM_FAVICON_URL}; frame-ancestors 'none'`,
     });
     res.once('finish', () => audit({ event: 'http_request', request_id: requestId, status: res.statusCode,
       duration_ms: Math.round(performance.now() - started), method: req.method,
@@ -36,7 +38,7 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
       res.status(403).json({ error: 'invalid_host' }); return;
     }
     const origin = req.get('origin');
-    if (origin && !config.allowedOrigins.includes(origin)) {
+    if (origin && origin !== config.publicOrigin && !config.allowedOrigins.includes(origin)) {
       res.status(403).json({ error: 'invalid_origin' }); return;
     }
     if (origin) {
@@ -48,9 +50,10 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
     }
     next();
   });
+  app.get('/favicon.ico', (_req, res) => { res.redirect(302, MAKECRM_FAVICON_URL); });
   app.get('/', (_req, res) => {
     res.json({ service: 'MakeCRM MCP', endpoint: '/mcp', readiness: '/readyz', auth_mode: config.AUTH_MODE,
-      message: 'Servidor MCP de leitura. O endpoint /mcp exige autenticação; OAuth ainda está em desenvolvimento.' });
+      message: 'Servidor MCP de leitura. O endpoint /mcp exige autenticação individual.' });
   });
   app.get('/healthz', (_req, res) => { res.json({ status: 'ok' }); });
   app.get('/readyz', async (_req, res) => {
@@ -97,7 +100,7 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
 
   app.post('/mcp', express.json({ limit: '32kb', strict: true, inflate: false }), async (req, res) => {
     const principal = res.locals.principal as Principal;
-    const server = createMcpServer(principal, deps.gateway, challenge, oauth);
+    const server = createMcpServer(principal, deps.gateway, challenge, oauth, config.MCP_TIME_ZONE);
     const transport = new StreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
     let closed = false;
     const cleanup = async () => { if (!closed) { closed = true; await server.close(); } };
@@ -114,6 +117,7 @@ export function createApp(config: Config, deps: Dependencies, audit: (event: Aud
   // Modo sem sessão: não mantém streams GET ou sessões para excluir.
   app.all('/mcp', (_req, res) => { res.set('Allow', 'POST, OPTIONS').status(405).end(); });
   if (deps.apiRouter) app.use(deps.apiRouter);
+  if (deps.oauthRouter) app.use(deps.oauthRouter);
   app.use((_req, res) => { res.status(404).json({ error: 'not_found' }); });
   const onError: ErrorRequestHandler = (error, _req, res, _next) => {
     const status = error?.type === 'entity.too.large' ? 413 : error?.type === 'encoding.unsupported' ? 415 : error instanceof SyntaxError ? 400 : 500;
@@ -129,8 +133,14 @@ async function permit(limiter: RateLimiter, key: string, limit: number, res: Res
   return result.allowed;
 }
 
-function createMcpServer(principal: Principal, gateway: SaasGateway, challenge: string, oauth: boolean) {
-  const server = new McpServer({ name: 'makecrm', version: '0.1.0' });
+function createMcpServer(principal: Principal, gateway: SaasGateway, challenge: string, oauth: boolean, timeZone: string) {
+  const server = new McpServer({
+    name: 'makecrm', title: 'MakeCRM', version: '0.1.0',
+    icons: [{
+      src: MAKECRM_LOGO_URL,
+      mimeType: 'image/png',
+    }],
+  });
   const collections: { name: Collection; title: string; scope: Scope }[] = [
     { name: 'contacts', title: 'Consultar contatos', scope: 'contacts:read' },
     { name: 'opportunities', title: 'Consultar oportunidades', scope: 'opportunities:read' },
@@ -160,5 +170,6 @@ function createMcpServer(principal: Principal, gateway: SaasGateway, challenge: 
       }
     });
   }
+  registerReadTools(server, principal, gateway, challenge, oauth, timeZone);
   return server;
 }

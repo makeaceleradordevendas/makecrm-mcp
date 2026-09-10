@@ -1,0 +1,11 @@
+# Somente os arquivos necessários ao build entram no contexto.
+**
+!Dockerfile
+!.dockerignore
+!package.json
+!package-lock.json
+!tsconfig.json
+!src/
+!src/**
+!docker/
+!docker/healthcheck.cjs

@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  makecrm-mcp:
+    # Publique a imagem antes de implantar. Swarm não executa "build: .".
+    image: allysonassuncao/makecrm-mcp:v2
+    environment:
+      NODE_ENV: production
+      AUTH_MODE: oauth
+      HOST: 0.0.0.0
+      PORT: "3000"
+      PUBLIC_URL: https://mcp.allyson.com.br
+      OAUTH_ISSUER: https://mcp.allyson.com.br
+      ALLOWED_HOSTS: mcp.allyson.com.br
+      # Pressupõe um salto confiável entre a aplicação e o Traefik.
+      TRUST_PROXY_HOPS: "1"
+      ALLOWED_ORIGINS: https://app.usemakecrm.com.br
+      SUPABASE_OAUTH_CLIENT_ID: 1f0c7238-84f0-43a0-9244-dd8e6b563c68
+      SUPABASE_OAUTH_CLIENT_SECRET: pDAXSWVe39NtxjIbT3T4rI7oLKfmKvwap0YUMSpq-zM
+      OAUTH_ALLOWED_REDIRECT_URIS: https://claude.ai/api/mcp/auth_callback,https://chatgpt.com/connector_platform_oauth_redirect
+      OAUTH_ACCESS_TOKEN_SECONDS: "900"
+      OAUTH_CONNECTION_SECONDS: "2592000"
+      SUPABASE_URL: https://htdjkprnspssogcetzhx.supabase.co
+      SUPABASE_PUBLISHABLE_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imh0ZGprcHJuc3Bzc29nY2V0emh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NTYxNDkzMTUsImV4cCI6MjA3MTcyNTMxNX0.HcCYaVGC85ab9QvuqkQMx8TD07ndpl8qHG9tFZB-628
+      REDIS_URL: redis://redis:6379/7
+      SESSION_ENCRYPTION_KEY: hGHmvob8fTNQZFH8kAjQ6o0rUHYnF4c9MafTVWxAjOUGYusINFhGHmvob8fTNQZF
+      MCP_CURSOR_SECRET: guQkO399AedCYXNZ0fTeds6Sr0lnj54P
+      SAAS_API_KEY: hT9him0LludIF0Al9NAe7VicSPxQb4i0
+    networks:
+      - allyson-desenv
+    # A porta 3000 fica acessível ao Traefik pela rede, sem publicação no host.
+    stop_grace_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    deploy:
+      mode: replicated
+      replicas: 1
+      placement:
+        constraints:
+          - node.platform.os == linux
+          - node.platform.arch == x86_64
+      restart_policy:
+        condition: any
+        delay: 5s
+      update_config:
+        parallelism: 1
+        order: start-first
+        failure_action: rollback
+        monitor: 45s
+      rollback_config:
+        parallelism: 1
+        order: start-first
+      resources:
+        limits:
+          cpus: '0.50'
+          memory: 512M
+        reservations:
+          cpus: '0.10'
+          memory: 64M
+      labels:
+        - 'traefik.enable=true'
+        # Compatibilidade com o provider Docker/Swarm v2 e Swarm v3.
+        - 'traefik.docker.network=allyson-desenv'
+        - 'traefik.swarm.network=allyson-desenv'
+        - 'traefik.http.routers.makecrm-mcp.rule=Host(`mcp.allyson.com.br`)'
+        - 'traefik.http.routers.makecrm-mcp.entrypoints=websecure'
+        - 'traefik.http.routers.makecrm-mcp.tls.certresolver=letsencryptresolver'
+        - 'traefik.http.routers.makecrm-mcp.service=makecrm-mcp'
+        - 'traefik.http.services.makecrm-mcp.loadbalancer.server.port=3000'
+        - 'traefik.http.services.makecrm-mcp.loadbalancer.healthcheck.path=/readyz'
+        - 'traefik.http.services.makecrm-mcp.loadbalancer.healthcheck.hostname=mcp.allyson.com.br'
+        - 'traefik.http.services.makecrm-mcp.loadbalancer.healthcheck.interval=15s'
+        - 'traefik.http.services.makecrm-mcp.loadbalancer.healthcheck.timeout=3s'
+
+networks:
+  allyson-desenv:
+    external: true

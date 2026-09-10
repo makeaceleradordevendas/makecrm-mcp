@@ -1,6 +1,7 @@
 import { z } from 'zod';
+import type { ReadToolName } from './tools/read-catalog.js';
 
-export const scopes = ['contacts:read', 'opportunities:read', 'conversations:read'] as const;
+export const scopes = ['contacts:read', 'opportunities:read', 'conversations:read', 'catalog:read', 'contacts:context:read'] as const;
 export const scopeSchema = z.enum(scopes);
 export type Scope = z.infer<typeof scopeSchema>;
 export const principalSchema = z.object({
@@ -24,13 +25,20 @@ export type Collection = 'contacts' | 'opportunities' | 'conversations';
 export interface SaasGateway {
   authenticate(token: string, resource: string): Promise<Principal | null>;
   read(collection: Collection, principal: Principal, query: ReadQuery, signal?: AbortSignal): Promise<Record<string, unknown>>;
+  executeRead?(name: ReadToolName, principal: Principal, input: unknown, signal?: AbortSignal): Promise<Record<string, unknown>>;
 }
 
+export type DependencyDiagnostic = {
+  operation: 'supabase_oauth_token' | 'supabase_user' | 'supabase_identity' | 'supabase_read'
+    | 'oauth_request_read' | 'oauth_request_consume' | 'oauth_consent_save';
+  reason: 'http_error' | 'invalid_response' | 'timeout' | 'network_error' | 'storage_error';
+  upstream_status?: number;
+};
 export class DependencyUnavailable extends Error {
-  constructor() { super('Dependency unavailable'); }
+  constructor(readonly diagnostic?: DependencyDiagnostic) { super('Dependency unavailable'); }
 }
 export class AccessDenied extends Error {
-  constructor() { super('Access denied'); }
+  constructor(readonly diagnostic?: DependencyDiagnostic) { super('Access denied'); }
 }
 
 export interface RateLimiter {

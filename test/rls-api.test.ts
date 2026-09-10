@@ -61,7 +61,9 @@ test('sessões: criptografia autenticada não permite trocar conteúdo entre cha
   assert(!encrypted.includes(userA));
   assert.deepEqual(cipher.decrypt(encrypted, 'key-a'), record);
   assert.throws(() => cipher.decrypt(encrypted, 'key-b'));
-  const parts = encrypted.split('.'); parts[2] = `x${parts[2]!.slice(1)}`;
+  const parts = encrypted.split('.');
+  const tampered = Buffer.from(parts[2]!, 'base64url'); tampered[0] = tampered[0]! ^ 1;
+  parts[2] = tampered.toString('base64url');
   assert.throws(() => cipher.decrypt(parts.join('.'), 'key-a'));
   assert.throws(() => new SessionCipher('too-short'));
 });
